@@ -1,0 +1,63 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────
+#  FinanzasApp — Override de DESARROLLO
+#  Uso: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#  Atajo:  make dev
+# ─────────────────────────────────────────────────────
+
+services:
+
+  nginx:
+    # En desarrollo solo usamos HTTP (sin SSL)
+    volumes:
+      - ./infra/nginx/conf.d:/etc/nginx/conf.d:ro
+      #- ./infra/nginx/conf.d/dev.conf:/etc/nginx/conf.d/default.conf:ro
+
+  api:
+    # Stage "development" del Dockerfile activa nodemon (hot-reload)
+    build:
+      target: development
+    volumes:
+      # Monta el código fuente en vivo — cualquier cambio reinicia la API
+      - ./api/src:/app/src
+      - ./api/migrations:/app/migrations
+      # Este volumen anonimo evita que el node_modules del host
+      # pise el del contenedor (pueden tener binarios distintos)
+      - /app/node_modules
+    environment:
+      NODE_ENV: development
+      LOG_LEVEL: debug
+    command: npm run dev
+
+  web:
+    # Usa el Dockerfile.dev que no hace build — corre Vite en modo dev
+    build:
+      context: ./web
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./web/src:/app/src
+      - /app/node_modules
+    environment:
+      VITE_API_URL: http://localhost/api/v1
+    command: npm run dev
+
+  # Exponemos Postgres al host para conectar con DBeaver, TablePlus, psql, etc.
+  postgres:
+    ports:
+      - "5432:5432"
+
+  # Exponemos Redis al host para inspección con redis-cli o RedisInsight
+  redis:
+    ports:
+      - "6379:6379"
+
+  minio:
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+
+  # Certbot no tiene sentido en desarrollo local
+  certbot:
+    profiles:
+      - disabled

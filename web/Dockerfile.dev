@@ -1,0 +1,10 @@
+# ── Desarrollo: Vite en modo watch ───────────────
+# No compila — sirve el código directamente con hot-reload
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+EXPOSE 5173
+# --host 0.0.0.0 es necesario para que Nginx pueda alcanzar Vite
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

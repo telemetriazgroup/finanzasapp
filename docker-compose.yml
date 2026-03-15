@@ -1,0 +1,200 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────
+#  FinanzasApp — Docker Compose
+#  Producción: VPS DigitalOcean / Linode
+#  Desarrollo: usa docker-compose.dev.yml encima
+# ─────────────────────────────────────────────
+
+networks:
+  # Red pública: Nginx, API, Web, MinIO se comunican aquí
+  finanzas_net:
+    driver: bridge
+  # Red interna: Postgres y Redis NO son accesibles desde internet
+  db_net:
+    driver: bridge
+    internal: true
+
+volumes:
+  postgres_data:   # Datos persistentes de la base de datos
+  redis_data:      # Datos persistentes de Redis (cache + colas)
+  minio_data:      # Archivos subidos (comprobantes, recibos)
+  nginx_logs:      # Logs de Nginx
+
+services:
+
+  # ── 1. NGINX ──────────────────────────────────────────
+  # Actúa como reverse proxy: recibe todo el tráfico en :80/:443
+  # y lo enruta hacia la API o el frontend según la URL.
+  # También maneja SSL con Let's Encrypt.
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: finanzas_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./infra/nginx/ssl:/etc/nginx/ssl:ro
+      - nginx_logs:/var/log/nginx
+      - /var/www/certbot:/var/www/certbot:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - api
+      - web
+    networks:
+      - finanzas_net
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── 2. API ────────────────────────────────────────────
+  # Servidor Node.js con Express.
+  # NO expone puerto al exterior — solo Nginx puede hablarle.
+  # Se conecta a Postgres y Redis a través de db_net.
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+      target: production
+    container_name: finanzas_api
+    restart: unless-stopped
+    expose:
+      - "4000"
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DB_HOST: postgres       # Nombre del servicio = hostname dentro de Docker
+      DB_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MINIO_ENDPOINT: minio
+      MINIO_PORT: 9000
+    depends_on:
+      postgres:
+        condition: service_healthy   # Espera a que Postgres esté listo
+      redis:
+        condition: service_healthy
+    networks:
+      - finanzas_net
+      - db_net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+
+  # ── 3. WEB ────────────────────────────────────────────
+  # Contenedor Nginx que sirve el build estático de React.
+  # Vite compila el frontend y el resultado va a /usr/share/nginx/html.
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL}
+    container_name: finanzas_web
+    restart: unless-stopped
+    expose:
+      - "80"
+    networks:
+      - finanzas_net
+
+  # ── 4. POSTGRESQL ─────────────────────────────────────
+  # Base de datos principal. Solo accesible desde db_net (interna).
+  # El archivo init.sql crea tablas y categorías por defecto
+  # la primera vez que se levanta el contenedor.
+  postgres:
+    image: postgres:16-alpine
+    container_name: finanzas_postgres
+    restart: unless-stopped
+    expose:
+      - "5432"
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    networks:
+      - db_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ── 5. REDIS ──────────────────────────────────────────
+  # Usado para tres cosas:
+  #   - Cache de consultas frecuentes
+  #   - Almacenamiento de refresh tokens (sesiones)
+  #   - Blacklist de JWT revocados (logout)
+  redis:
+    image: redis:7.2-alpine
+    container_name: finanzas_redis
+    restart: unless-stopped
+    expose:
+      - "6379"
+    command: >
+      redis-server
+      --requirepass ${REDIS_PASSWORD}
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - db_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── 6. MINIO ──────────────────────────────────────────
+  # Almacenamiento de archivos compatible con S3.
+  # Guarda comprobantes y recibos subidos por los usuarios.
+  # La consola web (:9001) se expone SOLO para acceso local via SSH tunnel.
+  minio:
+    image: minio/minio:latest
+    container_name: finanzas_minio
+    restart: unless-stopped
+    expose:
+      - "9000"
+    ports:
+      - "127.0.0.1:9001:9001"   # Solo desde localhost
+    env_file:
+      - .env
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - finanzas_net
+      - db_net
+
+  # ── 7. CERTBOT ────────────────────────────────────────
+  # Renueva el certificado SSL automáticamente cada 12 horas.
+  # Solo necesario en producción.
+  certbot:
+    image: certbot/certbot:latest
+    container_name: finanzas_certbot
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt
+      - /var/www/certbot:/var/www/certbot
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    restart: unless-stopped

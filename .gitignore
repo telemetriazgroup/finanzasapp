@@ -1,0 +1,26 @@
+# ── CRÍTICO: nunca subir al repo ─────────────────────
+.env
+*.pem
+*.key
+*.crt
+/infra/nginx/ssl/
+/etc/letsencrypt/
+
+# ── Node.js ───────────────────────────────────────────
+node_modules/
+npm-debug.log*
+
+# ── Builds ────────────────────────────────────────────
+dist/
+build/
+
+# ── Logs y backups ────────────────────────────────────
+logs/
+*.log
+backups/
+
+# ── Editores ──────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+*.swp
