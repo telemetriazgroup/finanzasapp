@@ -20,9 +20,12 @@ const app = express()
 // Helmet agrega headers HTTP de seguridad automáticamente
 app.use(helmet())
 
-// CORS: solo acepta peticiones del dominio del frontend
+// CORS: en desarrollo permite cualquier origen; en producción solo APP_URL
+const corsOrigin = process.env.NODE_ENV === 'development'
+  ? true  // localhost, IP del servidor, etc.
+  : (process.env.APP_URL || 'http://localhost:5173')
 app.use(cors({
-  origin:      process.env.APP_URL || 'http://localhost:5173',
+  origin:      corsOrigin,
   credentials: true,
   methods:     ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
 }))

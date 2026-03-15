@@ -1,0 +1,11 @@
+# ─────────────────────────────────────────────────────
+#  FinanzasApp — Producción por IP (sin dominio, sin SSL)
+#  Uso: docker compose -f docker-compose.yml -f docker-compose.prod-ip.yml up -d
+#  Atajo: make prod-ip (si lo agregas al Makefile)
+# ─────────────────────────────────────────────────────
+
+services:
+  # Certbot no tiene sentido sin dominio
+  certbot:
+    profiles:
+      - disabled

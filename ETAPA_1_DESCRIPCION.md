@@ -2,6 +2,9 @@ cp .env.example .env   # Editar passwords y JWT secrets
 make dev               # Levanta todo con hot-reload
 # Abrir http://localhost
 
+# sino rerponde poner 
+docker compose down
+
 
 Archivo 1 de 40 — docker-compose.yml
 ¿Qué hace? Define y conecta todos los servicios de la aplicación: Nginx (proxy), la API Node.js, el frontend React, PostgreSQL, Redis y MinIO. Es el "director de orquesta" — con un solo comando docker compose up levanta todo el sistema.

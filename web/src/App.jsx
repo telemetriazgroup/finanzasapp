@@ -36,7 +36,7 @@ export default function App() {
   }, [isAuth])
 
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       {/* Toasts se renderizan sobre todo el contenido */}
       <Toasts />
 

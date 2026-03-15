@@ -23,8 +23,11 @@ dev-d: ## Levantar desarrollo en background
 	docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 
 # ── Producción ────────────────────────────────────────
-prod: ## Levantar entorno de producción
+prod: ## Levantar entorno de producción (con dominio + SSL)
 	docker compose up -d --build
+
+prod-ip: ## Producción por IP (sin dominio, solo HTTP)
+	docker compose -f docker-compose.yml -f docker-compose.prod-ip.yml up -d --build
 
 # ── Control básico ────────────────────────────────────
 down: ## Detener todos los contenedores
